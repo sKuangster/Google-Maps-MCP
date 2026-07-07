@@ -50,3 +50,7 @@ def search_restaurants(lat: float, lng: float, radius: int = 1500) -> list:
     data = resp.json()
 
     return data.get("places", [])
+
+def rank_restaurants(results: list, min_reviews: int = 5) -> list:
+    filtered = filter(lambda x: x.get("userRatingCount", 0) >= min_reviews, results)
+    return sorted(filtered, key=lambda p: (p.get("rating", 0), p.get("userRatingCount", 0)), reverse=True)
