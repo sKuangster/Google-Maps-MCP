@@ -140,7 +140,8 @@ class OAuthProvider:
             "response_types_supported": ["code"],
             "grant_types_supported": ["authorization_code", "refresh_token"],
             "code_challenge_methods_supported": ["S256"],
-            "token_endpoint_auth_methods_supported": ["none"],
+            "token_endpoint_auth_methods_supported": ["none", "client_secret_post",
+                                                      "client_secret_basic"],
             "scopes_supported": ["mcp"],
         })
 
@@ -159,14 +160,20 @@ class OAuthProvider:
             return JSONResponse({"error": "invalid_client_metadata"}, status_code=400)
         # Public clients with PKCE: nothing to store, any client_id works.
         # Security comes from the consent secret + PKCE + redirect allowlist.
+        # Honor the client's requested auth method for compatibility; a
+        # client_secret is issued but never validated at /token.
+        auth_method = body.get("token_endpoint_auth_method", "none")
         response = {
             "client_id": secrets.token_urlsafe(16),
             "client_id_issued_at": int(time.time()),
-            "token_endpoint_auth_method": "none",
+            "token_endpoint_auth_method": auth_method,
             "redirect_uris": body.get("redirect_uris", []),
             "grant_types": ["authorization_code", "refresh_token"],
             "response_types": ["code"],
         }
+        if auth_method != "none":
+            response["client_secret"] = secrets.token_urlsafe(32)
+            response["client_secret_expires_at"] = 0
         if "client_name" in body:
             response["client_name"] = body["client_name"]
         logger.info("Registered OAuth client %s (%s)",
