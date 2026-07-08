@@ -160,6 +160,24 @@ class DirectionsResult(BaseModel):
     steps: list[DirectionsStep]
 
 
+class DistanceMatrixRequest(BaseModel):
+    origins: list[str] = Field(min_length=1, max_length=10,
+                               description="Addresses, place names, or 'lat,lng' pairs")
+    destinations: list[str] = Field(min_length=1, max_length=10,
+                                    description="Addresses, place names, or 'lat,lng' pairs")
+    mode: TravelMode = TravelMode.DRIVING
+
+
+class DistanceMatrixEntry(BaseModel):
+    origin_index: int
+    destination_index: int
+    origin: str
+    destination: str
+    distance_meters: int | None = None
+    duration_seconds: int | None = None
+    condition: str
+
+
 def geocode_address(address: str) -> GeocodeResult:
     resp = requests.get(
         "https://maps.googleapis.com/maps/api/geocode/json",
@@ -296,6 +314,48 @@ def get_directions(origin: str, destination: str, mode: TravelMode = TravelMode.
         duration_text=localized.get("duration", {}).get("text", ""),
         steps=steps,
     )
+
+
+@cached_and_throttled(ttl_seconds=300, min_interval_seconds=1.0)
+def compute_distance_matrix(origins: list[str], destinations: list[str],
+                            mode: TravelMode = TravelMode.DRIVING) -> list[DistanceMatrixEntry]:
+    url = "https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix"
+    headers = {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": API_KEY,
+        "X-Goog-FieldMask": "originIndex,destinationIndex,distanceMeters,duration,condition,status",
+    }
+    body = {
+        "origins": [{"waypoint": _waypoint(o)} for o in origins],
+        "destinations": [{"waypoint": _waypoint(d)} for d in destinations],
+        "travelMode": ROUTES_TRAVEL_MODES[mode],
+    }
+    if mode == TravelMode.DRIVING:
+        body["routingPreference"] = "TRAFFIC_AWARE"
+
+    resp = requests.post(url, headers=headers, json=body, timeout=20)
+    if not resp.ok:
+        logger.error("Routes computeRouteMatrix failed: status=%s body=%s",
+                     resp.status_code, resp.text)
+    resp.raise_for_status()
+
+    entries = []
+    for element in resp.json():
+        origin_index = element.get("originIndex", 0)
+        destination_index = element.get("destinationIndex", 0)
+        route_exists = element.get("condition") == "ROUTE_EXISTS"
+        entries.append(DistanceMatrixEntry(
+            origin_index=origin_index,
+            destination_index=destination_index,
+            origin=origins[origin_index],
+            destination=destinations[destination_index],
+            distance_meters=element.get("distanceMeters") if route_exists else None,
+            duration_seconds=_duration_seconds(element["duration"])
+                             if route_exists and "duration" in element else None,
+            condition="OK" if route_exists else element.get("condition", "UNKNOWN"),
+        ))
+    entries.sort(key=lambda e: (e.origin_index, e.destination_index))
+    return entries
 
 
 def rank_places(results: list, min_reviews: int = 5) -> list:

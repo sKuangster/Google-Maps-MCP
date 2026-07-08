@@ -5,7 +5,9 @@ from client import (
     search_places,
     rank_places,
     get_directions,
+    compute_distance_matrix,
     DirectionsRequest,
+    DistanceMatrixRequest,
     PlaceCategory,
     PlaceSearchRequest,
 )
@@ -52,6 +54,17 @@ def get_directions_between(request: DirectionsRequest) -> dict:
         return get_directions(request.origin, request.destination, request.mode).model_dump()
     except Exception as e:
         return {"error": f"Could not get directions: {e}"}
+
+
+@mcp.tool()
+def get_distance_matrix(request: DistanceMatrixRequest) -> list:
+    """Get travel time and distance between multiple origins and destinations at
+    once (max 10 of each). Each entry pairs one origin with one destination."""
+    try:
+        entries = compute_distance_matrix(request.origins, request.destinations, request.mode)
+        return [e.model_dump() for e in entries]
+    except Exception as e:
+        return [{"error": f"Could not compute distance matrix: {e}"}]
 
 
 @mcp.tool()
