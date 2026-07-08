@@ -1,4 +1,15 @@
+import hmac
+import logging
+import os
+from pathlib import Path
+
+import uvicorn
+from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+
 from client import (
     geocode_address,
     reverse_geocode,
@@ -14,7 +25,33 @@ from client import (
     PlaceSearchRequest,
 )
 
-mcp = FastMCP("place-finder")
+load_dotenv(Path(__file__).resolve().parent / ".env")
+
+logging.basicConfig(level=logging.INFO,
+                    format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logger = logging.getLogger(__name__)
+
+MCP_SHARED_SECRET = os.getenv("MCP_SHARED_SECRET")
+
+# stateless_http so requests survive restarts/redeploys without session state
+mcp = FastMCP("google-maps", stateless_http=True)
+
+
+class SharedSecretMiddleware(BaseHTTPMiddleware):
+    """Reject any request that lacks the correct X-MCP-Secret header.
+
+    /healthz is exempt so the hosting platform can probe liveness.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        if request.url.path == "/healthz":
+            return JSONResponse({"status": "ok"})
+        provided = request.headers.get("X-MCP-Secret", "")
+        if not MCP_SHARED_SECRET or not hmac.compare_digest(provided, MCP_SHARED_SECRET):
+            logger.warning("Rejected request to %s: missing or invalid X-MCP-Secret",
+                           request.url.path)
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        return await call_next(request)
 
 
 @mcp.tool()
@@ -101,5 +138,15 @@ def best_places_near(address: str, category: PlaceCategory, radius: int = 1500, 
         return [{"error": str(e)}]
 
 
+def build_app():
+    if not MCP_SHARED_SECRET:
+        raise RuntimeError("MCP_SHARED_SECRET is not set; refusing to start unauthenticated")
+    app = mcp.streamable_http_app()
+    app.add_middleware(SharedSecretMiddleware)
+    return app
+
+
 if __name__ == "__main__":
-    mcp.run(transport="stdio")
+    port = int(os.getenv("PORT", "8000"))
+    logger.info("Starting google-maps MCP server on port %d (endpoint /mcp)", port)
+    uvicorn.run(build_app(), host="0.0.0.0", port=port)
