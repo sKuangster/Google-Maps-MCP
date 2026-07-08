@@ -13,6 +13,7 @@ tools over the Model Context Protocol.
 | `best_places_near` | Geocode an address and search nearby in one call |
 | `get_directions_between` | Directions between two points (driving/walking/transit/bicycling): distance, duration, step summary |
 | `get_distance_matrix` | Travel time/distance between multiple origins and destinations at once |
+| `get_place_details` | place_id → phone, hours, website, price level, rating, review snippets |
 
 Supported place categories: `food_and_drink`, `entertainment_and_recreation`,
 `shopping`, `sports`, `automotive`, `health_and_wellness`, `lodging`.

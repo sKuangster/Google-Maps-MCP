@@ -6,6 +6,7 @@ from client import (
     rank_places,
     get_directions,
     compute_distance_matrix,
+    fetch_place_details,
     DirectionsRequest,
     DistanceMatrixRequest,
     PlaceCategory,
@@ -65,6 +66,16 @@ def get_distance_matrix(request: DistanceMatrixRequest) -> list:
         return [e.model_dump() for e in entries]
     except Exception as e:
         return [{"error": f"Could not compute distance matrix: {e}"}]
+
+
+@mcp.tool()
+def get_place_details(place_id: str) -> dict:
+    """Get details for a place by its place_id: phone number, opening hours,
+    website, price level, rating, and review snippets."""
+    try:
+        return fetch_place_details(place_id).model_dump()
+    except Exception as e:
+        return {"error": f"Could not fetch place details for '{place_id}': {e}"}
 
 
 @mcp.tool()

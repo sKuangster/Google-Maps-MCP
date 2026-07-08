@@ -178,6 +178,26 @@ class DistanceMatrixEntry(BaseModel):
     condition: str
 
 
+class PlaceReview(BaseModel):
+    rating: float | None = None
+    text: str | None = None
+    author: str | None = None
+    published: str | None = None
+
+
+class PlaceDetails(BaseModel):
+    place_id: str
+    name: str
+    formatted_address: str | None = None
+    phone_number: str | None = None
+    website: str | None = None
+    price_level: str | None = None
+    rating: float | None = None
+    user_rating_count: int | None = None
+    opening_hours: list[str] = []
+    reviews: list[PlaceReview] = []
+
+
 def geocode_address(address: str) -> GeocodeResult:
     resp = requests.get(
         "https://maps.googleapis.com/maps/api/geocode/json",
@@ -356,6 +376,54 @@ def compute_distance_matrix(origins: list[str], destinations: list[str],
         ))
     entries.sort(key=lambda e: (e.origin_index, e.destination_index))
     return entries
+
+
+@cached_and_throttled(ttl_seconds=3600, min_interval_seconds=0.5)
+def fetch_place_details(place_id: str) -> PlaceDetails:
+    url = f"https://places.googleapis.com/v1/places/{place_id}"
+    headers = {
+        "X-Goog-Api-Key": API_KEY,
+        "X-Goog-FieldMask": (
+            "id,displayName,formattedAddress,internationalPhoneNumber,websiteUri,"
+            "priceLevel,rating,userRatingCount,regularOpeningHours.weekdayDescriptions,"
+            "reviews.rating,reviews.text.text,reviews.authorAttribution.displayName,"
+            "reviews.relativePublishTimeDescription"
+        ),
+    }
+
+    resp = requests.get(url, headers=headers, timeout=10)
+    if not resp.ok:
+        logger.error("Place details failed for %s: status=%s body=%s",
+                     place_id, resp.status_code, resp.text)
+    resp.raise_for_status()
+    data = resp.json()
+
+    price_level = data.get("priceLevel")
+    if price_level:
+        price_level = price_level.removeprefix("PRICE_LEVEL_").lower()
+
+    reviews = [
+        PlaceReview(
+            rating=review.get("rating"),
+            text=review.get("text", {}).get("text"),
+            author=review.get("authorAttribution", {}).get("displayName"),
+            published=review.get("relativePublishTimeDescription"),
+        )
+        for review in data.get("reviews", [])
+    ]
+
+    return PlaceDetails(
+        place_id=data.get("id", place_id),
+        name=data.get("displayName", {}).get("text", ""),
+        formatted_address=data.get("formattedAddress"),
+        phone_number=data.get("internationalPhoneNumber"),
+        website=data.get("websiteUri"),
+        price_level=price_level,
+        rating=data.get("rating"),
+        user_rating_count=data.get("userRatingCount"),
+        opening_hours=data.get("regularOpeningHours", {}).get("weekdayDescriptions", []),
+        reviews=reviews,
+    )
 
 
 def rank_places(results: list, min_reviews: int = 5) -> list:
