@@ -7,6 +7,7 @@ from client import (
     get_directions,
     compute_distance_matrix,
     fetch_place_details,
+    lookup_time_zone,
     DirectionsRequest,
     DistanceMatrixRequest,
     PlaceCategory,
@@ -76,6 +77,16 @@ def get_place_details(place_id: str) -> dict:
         return fetch_place_details(place_id).model_dump()
     except Exception as e:
         return {"error": f"Could not fetch place details for '{place_id}': {e}"}
+
+
+@mcp.tool()
+def get_time_zone(lat: float, lng: float) -> dict:
+    """Get the local time zone for a latitude/longitude: time zone ID and name,
+    UTC offset, and the current local time."""
+    try:
+        return lookup_time_zone(lat, lng).model_dump()
+    except Exception as e:
+        return {"error": f"Could not look up time zone for ({lat}, {lng}): {e}"}
 
 
 @mcp.tool()

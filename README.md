@@ -14,6 +14,7 @@ tools over the Model Context Protocol.
 | `get_directions_between` | Directions between two points (driving/walking/transit/bicycling): distance, duration, step summary |
 | `get_distance_matrix` | Travel time/distance between multiple origins and destinations at once |
 | `get_place_details` | place_id → phone, hours, website, price level, rating, review snippets |
+| `get_time_zone` | Latitude/longitude → time zone ID/name, UTC offset, current local time |
 
 Supported place categories: `food_and_drink`, `entertainment_and_recreation`,
 `shopping`, `sports`, `automotive`, `health_and_wellness`, `lodging`.
@@ -38,3 +39,4 @@ Enable these in your Google Cloud project:
 - Places API (New)
 - Routes API (used for directions and distance matrix — the legacy
   Directions/Distance Matrix APIs are not available to new Google Cloud projects)
+- Time Zone API

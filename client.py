@@ -1,5 +1,7 @@
 import logging
 import os
+import time
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 
@@ -183,6 +185,13 @@ class PlaceReview(BaseModel):
     text: str | None = None
     author: str | None = None
     published: str | None = None
+
+
+class TimeZoneResult(BaseModel):
+    time_zone_id: str
+    time_zone_name: str
+    utc_offset_seconds: int
+    local_time: str
 
 
 class PlaceDetails(BaseModel):
@@ -376,6 +385,29 @@ def compute_distance_matrix(origins: list[str], destinations: list[str],
         ))
     entries.sort(key=lambda e: (e.origin_index, e.destination_index))
     return entries
+
+
+def lookup_time_zone(lat: float, lng: float) -> TimeZoneResult:
+    now = int(time.time())
+    resp = requests.get(
+        "https://maps.googleapis.com/maps/api/timezone/json",
+        params={"location": f"{lat},{lng}", "timestamp": now, "key": API_KEY},
+        timeout=10
+    )
+    resp.raise_for_status()
+    data = resp.json()
+
+    if data["status"] != "OK":
+        raise ValueError(f"Time zone lookup failed for ({lat}, {lng}): {data['status']}")
+
+    utc_offset = data["rawOffset"] + data["dstOffset"]
+    local_time = datetime.fromtimestamp(now, tz=timezone(timedelta(seconds=utc_offset)))
+    return TimeZoneResult(
+        time_zone_id=data["timeZoneId"],
+        time_zone_name=data["timeZoneName"],
+        utc_offset_seconds=utc_offset,
+        local_time=local_time.isoformat(),
+    )
 
 
 @cached_and_throttled(ttl_seconds=3600, min_interval_seconds=0.5)
