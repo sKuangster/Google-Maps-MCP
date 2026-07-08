@@ -38,9 +38,28 @@ python server.py         # serves http://localhost:8000/mcp
 | `GOOGLE_MAPS_API_KEY` | Google Maps Platform API key |
 | `MCP_SHARED_SECRET` | Secret clients must send in the `X-MCP-Secret` header. Generate with `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
 
-The server refuses to start if `MCP_SHARED_SECRET` is unset. Every request
-except `GET /healthz` is rejected with `401` unless it carries the correct
-`X-MCP-Secret` header.
+The server refuses to start if `MCP_SHARED_SECRET` is unset.
+
+## Authentication
+
+Requests to `/mcp` are accepted with either credential; everything else gets
+`401`:
+
+1. **`X-MCP-Secret` header** matching `MCP_SHARED_SECRET` — for Claude Code
+   and scripts.
+2. **OAuth 2.1 Bearer token** — for claude.ai / Claude Desktop custom
+   connectors. The server implements the MCP authorization spec itself
+   (metadata discovery, dynamic client registration, PKCE authorization-code
+   flow with refresh tokens): connecting from Claude opens a consent page
+   where you enter the shared secret once, and Claude holds tokens from then
+   on. Tokens are stateless HMAC-signed blobs keyed off `MCP_SHARED_SECRET`,
+   so they survive restarts, and rotating the secret revokes all of them.
+   OAuth redirect targets are restricted to Claude's callback URLs and
+   loopback addresses; extend with a comma-separated `OAUTH_EXTRA_REDIRECTS`
+   env var if needed.
+
+`GET /healthz` and the OAuth endpoints (`/.well-known/*`, `/register`,
+`/authorize`, `/token`) are the only unauthenticated routes.
 
 ## Required Google Cloud APIs
 
@@ -93,37 +112,30 @@ Pushing to `main` auto-deploys the service.
 
 ## Connecting Claude
 
-**Claude Code** (supports custom headers directly):
+**claude.ai / Claude Desktop (custom connector, OAuth)**
+
+1. Go to **Settings → Connectors → Add custom connector**.
+2. Enter `https://<your-service>.onrender.com/mcp` as the URL. Leave the
+   Advanced settings (OAuth client ID/secret) empty — the server supports
+   dynamic client registration.
+3. Click **Add**, then **Connect**. You'll be redirected to the server's
+   consent page: enter your `MCP_SHARED_SECRET` and click Authorize.
+
+Free-tier note: if the Render service has spun down, the consent page or
+first connection attempt may time out while it cold-starts — retry after
+~30 s.
+
+**Claude Code** — either auth method works:
 
 ```bash
+# Header auth (no browser round-trip):
 claude mcp add --transport http google-maps \
   https://<your-service>.onrender.com/mcp \
   --header "X-MCP-Secret: <your-secret>"
+
+# Or OAuth: add without the header, then run /mcp in a session and
+# pick "Authenticate" — a browser opens the same consent page.
 ```
-
-**Claude Desktop** — the connector UI doesn't support custom headers, so
-bridge through [`mcp-remote`](https://www.npmjs.com/package/mcp-remote) in
-`claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "google-maps": {
-      "command": "npx",
-      "args": [
-        "mcp-remote",
-        "https://<your-service>.onrender.com/mcp",
-        "--header",
-        "X-MCP-Secret: <your-secret>"
-      ]
-    }
-  }
-}
-```
-
-**claude.ai (web) custom connectors** currently support only OAuth or
-unauthenticated servers — there is no field for a custom secret header, so
-this server's header auth won't work there without adding an OAuth layer.
 
 ## Project layout
 
@@ -131,5 +143,6 @@ this server's header auth won't work there without adding an OAuth layer.
 |------|------|
 | `client.py` | Google Maps API wrappers, Pydantic models, enums — errors propagate naturally |
 | `server.py` | MCP tool definitions (try/except at the boundary), auth middleware, HTTP transport |
+| `oauth.py` | Stateless OAuth 2.1 authorization server (metadata, registration, PKCE flow) |
 | `cost_control.py` | TTL cache + throttle decorator for expensive endpoints |
 | `render.yaml` | Render free-tier deployment blueprint |
