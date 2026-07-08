@@ -1,9 +1,26 @@
-import requests
 import os
+import sys
+from enum import Enum
+
+import requests
 from dotenv import load_dotenv
+from pydantic import BaseModel, Field
 
 load_dotenv()
 API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
+
+
+class PlaceCategory(str, Enum):
+    ENTERTAINMENT_AND_RECREATION = "entertainment_and_recreation"
+    FOOD_AND_DRINK = "food_and_drink"
+    # Add more as you build out their type lists:
+    # AUTOMOTIVE = "automotive"
+    # BUSINESS = "business"
+    # CULTURE = "culture"
+    # SHOPPING = "shopping"
+    # SPORTS = "sports"
+
+
 RESTAURANT_TYPES = [
     "restaurant", "american_restaurant", "bar", "bar_and_grill", "bistro", "brewery", "pub",
     "fast_food_restaurant", "fine_dining_restaurant", "family_restaurant", "diner",
@@ -23,7 +40,41 @@ RESTAURANT_TYPES = [
     "cafe", "coffee_shop", "bakery", "dessert_shop", "ice_cream_shop",
 ]
 
-def geocode_address(address: str) -> dict:
+ACTIVITY_TYPES = [
+    "amusement_park", "amusement_center", "aquarium", "zoo", "wildlife_park", "wildlife_refuge",
+    "water_park", "national_park", "state_park", "city_park", "park", "botanical_garden",
+    "garden", "hiking_area", "picnic_ground", "dog_park", "cycling_park",
+    "bowling_alley", "casino", "movie_theater", "night_club", "karaoke", "video_arcade",
+    "go_karting_venue", "miniature_golf_course", "paintball_center", "skateboard_park",
+    "roller_coaster", "ferris_wheel", "indoor_playground", "off_roading_area",
+    "adventure_sports_center", "marina", "vineyard",
+    "concert_hall", "live_music_venue", "philharmonic_hall", "opera_house", "amphitheatre",
+    "comedy_club", "dance_hall", "planetarium", "observation_deck",
+    "historical_landmark", "tourist_attraction", "cultural_center", "visitor_center",
+    "community_center", "convention_center", "event_venue", "banquet_hall", "wedding_venue",
+]
+
+CATEGORY_TYPES = {
+    PlaceCategory.FOOD_AND_DRINK: RESTAURANT_TYPES,
+    PlaceCategory.ENTERTAINMENT_AND_RECREATION: ACTIVITY_TYPES,
+}
+
+
+class PlaceSearchRequest(BaseModel):
+    lat: float
+    lng: float
+    category: PlaceCategory
+    radius: int = Field(default=1500, ge=100, le=50000)
+    min_reviews: int = Field(default=5, ge=0)
+
+
+class GeocodeResult(BaseModel):
+    lat: float
+    lng: float
+    resolved_address: str
+
+
+def geocode_address(address: str) -> GeocodeResult:
     resp = requests.get(
         "https://maps.googleapis.com/maps/api/geocode/json",
         params={"address": address, "key": API_KEY},
@@ -36,23 +87,26 @@ def geocode_address(address: str) -> dict:
         raise ValueError(f"Geocoding failed for '{address}': {data['status']}")
 
     location = data["results"][0]["geometry"]["location"]
-    return {
-        "lat": location["lat"],
-        "lng": location["lng"],
-        "resolved_address": data["results"][0]["formatted_address"]
-    }
+    return GeocodeResult(
+        lat=location["lat"],
+        lng=location["lng"],
+        resolved_address=data["results"][0]["formatted_address"]
+    )
 
-def search_restaurants(lat: float, lng: float, radius: int = 1500) -> list:
+
+def search_places(lat: float, lng: float, category: PlaceCategory, radius: int = 1500) -> list:
+    included_types = CATEGORY_TYPES.get(category)
+    if not included_types:
+        raise ValueError(f"No type mapping defined for category: {category}")
+
     url = "https://places.googleapis.com/v1/places:searchNearby"
-    
     headers = {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": API_KEY,
         "X-Goog-FieldMask": "places.displayName,places.rating,places.userRatingCount,places.priceLevel,places.formattedAddress,places.id"
     }
-
     body = {
-        "includedTypes": RESTAURANT_TYPES[:50], # API only allows 50 types per request
+        "includedTypes": included_types[:50],
         "maxResultCount": 20,
         "locationRestriction": {
             "circle": {
@@ -63,11 +117,29 @@ def search_restaurants(lat: float, lng: float, radius: int = 1500) -> list:
     }
 
     resp = requests.post(url, headers=headers, json=body, timeout=10)
+    if not resp.ok:
+        print(f"STATUS: {resp.status_code} BODY: {resp.text}", file=sys.stderr)
     resp.raise_for_status()
-    data = resp.json()
 
-    return data.get("places", [])
+    return resp.json().get("places", [])
 
-def rank_restaurants(results: list, min_reviews: int = 5) -> list:
+
+def rank_places(results: list, min_reviews: int = 5) -> list:
     filtered = filter(lambda x: x.get("userRatingCount", 0) >= min_reviews, results)
-    return sorted(filtered, key=lambda p: (p.get("rating", 0), p.get("userRatingCount", 0)), reverse=True)
+    return sorted(
+        filtered,
+        key=lambda p: (p.get("rating", 0), p.get("userRatingCount", 0)),
+        reverse=True
+    )
+
+
+if __name__ == "__main__":
+    geo = geocode_address("838 58th St, Brooklyn")
+    print(geo)
+
+    raw = search_places(geo.lat, geo.lng, PlaceCategory.FOOD_AND_DRINK)
+    print(f"Found {len(raw)} raw results")
+
+    ranked = rank_places(raw, min_reviews=5)
+    for r in ranked[:10]:
+        print(r["displayName"]["text"], r.get("rating"), r.get("userRatingCount"))
