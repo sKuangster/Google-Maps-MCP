@@ -1,13 +1,16 @@
+import logging
 import os
-import sys
 from enum import Enum
+from pathlib import Path
 
 import requests
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parent / ".env")
 API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
+
+logger = logging.getLogger(__name__)
 
 
 class PlaceCategory(str, Enum):
@@ -118,7 +121,7 @@ def search_places(lat: float, lng: float, category: PlaceCategory, radius: int =
 
     resp = requests.post(url, headers=headers, json=body, timeout=10)
     if not resp.ok:
-        print(f"STATUS: {resp.status_code} BODY: {resp.text}", file=sys.stderr)
+        logger.error("Places searchNearby failed: status=%s body=%s", resp.status_code, resp.text)
     resp.raise_for_status()
 
     return resp.json().get("places", [])
@@ -131,15 +134,3 @@ def rank_places(results: list, min_reviews: int = 5) -> list:
         key=lambda p: (p.get("rating", 0), p.get("userRatingCount", 0)),
         reverse=True
     )
-
-
-if __name__ == "__main__":
-    geo = geocode_address("838 58th St, Brooklyn")
-    print(geo)
-
-    raw = search_places(geo.lat, geo.lng, PlaceCategory.FOOD_AND_DRINK)
-    print(f"Found {len(raw)} raw results")
-
-    ranked = rank_places(raw, min_reviews=5)
-    for r in ranked[:10]:
-        print(r["displayName"]["text"], r.get("rating"), r.get("userRatingCount"))
