@@ -9,6 +9,7 @@ import requests
 import uvicorn
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
@@ -38,8 +39,14 @@ logger = logging.getLogger(__name__)
 
 MCP_SHARED_SECRET = os.getenv("MCP_SHARED_SECRET")
 
-# stateless_http so requests survive restarts/redeploys without session state
-mcp = FastMCP("google-maps", stateless_http=True)
+# stateless_http so requests survive restarts/redeploys without session state.
+# DNS-rebinding protection rejects non-localhost Host headers (421), which breaks
+# deployment behind Render's proxy; access is already gated by AuthMiddleware.
+mcp = FastMCP(
+    "google-maps",
+    stateless_http=True,
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+)
 
 
 # Paths that must stay reachable without credentials: platform liveness probes
