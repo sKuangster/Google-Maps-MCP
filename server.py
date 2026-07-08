@@ -1,8 +1,11 @@
 import hmac
 import logging
 import os
+import threading
+import time
 from pathlib import Path
 
+import requests
 import uvicorn
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
@@ -84,6 +87,25 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
 async def healthz(request: Request) -> JSONResponse:
     return JSONResponse({"status": "ok"})
+
+
+def start_keep_alive(public_url: str, interval_seconds: int = 600) -> None:
+    """Ping our own public /healthz so the free-tier instance never idles out.
+
+    Render spins free instances down after ~15 minutes without inbound
+    traffic, and the 30-60s cold start is longer than claude.ai's connector
+    timeout. Self-requests through the public URL count as inbound traffic.
+    """
+    def ping_forever():
+        while True:
+            time.sleep(interval_seconds)
+            try:
+                requests.get(f"{public_url}/healthz", timeout=30)
+            except requests.RequestException as e:
+                logger.warning("Keep-alive ping failed: %s", e)
+
+    threading.Thread(target=ping_forever, name="keep-alive", daemon=True).start()
+    logger.info("Keep-alive self-ping every %ds -> %s/healthz", interval_seconds, public_url)
 
 
 @mcp.tool()
@@ -191,6 +213,9 @@ def build_app(port: int = 8000):
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
                        allow_headers=["*"], expose_headers=["Mcp-Session-Id"])
     logger.info("OAuth issuer/base URL: %s", base_url)
+
+    if os.getenv("RENDER_EXTERNAL_URL"):
+        start_keep_alive(base_url)
     return app
 
 

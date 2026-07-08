@@ -105,8 +105,12 @@ The repo ships a [Render blueprint](render.yaml) (free-tier Python web service).
    `https://<your-service>.onrender.com/healthz` should return
    `{"status": "ok"}` without auth.
 
-Free-tier caveat: the instance spins down after ~15 minutes of inactivity, so
-the first request after idle takes ~30–60 s while it cold-starts.
+Free-tier caveat: Render spins the instance down after ~15 minutes without
+inbound traffic, and the 30–60 s cold start is longer than claude.ai's
+connector timeout. To prevent this, the server pings its own `/healthz` every
+10 minutes while running on Render (see `start_keep_alive` in `server.py`),
+keeping the instance warm around the clock. One always-on service fits within
+the free tier's 750 instance-hours/month.
 
 Pushing to `main` auto-deploys the service.
 
