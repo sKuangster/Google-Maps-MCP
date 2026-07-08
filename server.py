@@ -1,11 +1,11 @@
 from mcp.server.fastmcp import FastMCP
 from client import (
     geocode_address,
+    reverse_geocode,
     search_places,
     rank_places,
     PlaceCategory,
     PlaceSearchRequest,
-    GeocodeResult,
 )
 
 mcp = FastMCP("place-finder")
@@ -18,6 +18,15 @@ def get_geocode_address(address: str) -> dict:
         return geocode_address(address).model_dump()
     except Exception as e:
         return {"error": f"Could not geocode address: {e}"}
+
+
+@mcp.tool()
+def get_reverse_geocode(lat: float, lng: float) -> dict:
+    """Returns the human-readable address and place_id for a latitude/longitude."""
+    try:
+        return reverse_geocode(lat, lng).model_dump()
+    except Exception as e:
+        return {"error": f"Could not reverse geocode ({lat}, {lng}): {e}"}
 
 
 @mcp.tool()

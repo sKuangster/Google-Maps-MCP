@@ -77,6 +77,11 @@ class GeocodeResult(BaseModel):
     resolved_address: str
 
 
+class ReverseGeocodeResult(BaseModel):
+    formatted_address: str
+    place_id: str
+
+
 def geocode_address(address: str) -> GeocodeResult:
     resp = requests.get(
         "https://maps.googleapis.com/maps/api/geocode/json",
@@ -94,6 +99,25 @@ def geocode_address(address: str) -> GeocodeResult:
         lat=location["lat"],
         lng=location["lng"],
         resolved_address=data["results"][0]["formatted_address"]
+    )
+
+
+def reverse_geocode(lat: float, lng: float) -> ReverseGeocodeResult:
+    resp = requests.get(
+        "https://maps.googleapis.com/maps/api/geocode/json",
+        params={"latlng": f"{lat},{lng}", "key": API_KEY},
+        timeout=10
+    )
+    resp.raise_for_status()
+    data = resp.json()
+
+    if data["status"] != "OK":
+        raise ValueError(f"Reverse geocoding failed for ({lat}, {lng}): {data['status']}")
+
+    top = data["results"][0]
+    return ReverseGeocodeResult(
+        formatted_address=top["formatted_address"],
+        place_id=top["place_id"]
     )
 
 
