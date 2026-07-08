@@ -7,9 +7,11 @@ import uvicorn
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from oauth import OAuthProvider
 from client import (
     geocode_address,
     reverse_geocode,
@@ -37,21 +39,51 @@ MCP_SHARED_SECRET = os.getenv("MCP_SHARED_SECRET")
 mcp = FastMCP("google-maps", stateless_http=True)
 
 
-class SharedSecretMiddleware(BaseHTTPMiddleware):
-    """Reject any request that lacks the correct X-MCP-Secret header.
+# Paths that must stay reachable without credentials: platform liveness probes
+# and the OAuth discovery/registration/login flow itself.
+OPEN_PATHS = {"/healthz", "/register", "/token", "/authorize"}
+OPEN_PREFIXES = ("/.well-known/",)
 
-    /healthz is exempt so the hosting platform can probe liveness.
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    """Require either the X-MCP-Secret header or a valid OAuth Bearer token.
+
+    Unauthenticated requests get a 401 with a WWW-Authenticate challenge
+    pointing at the protected-resource metadata, which is how MCP clients
+    discover the OAuth flow.
     """
 
+    def __init__(self, app, oauth_provider: OAuthProvider):
+        super().__init__(app)
+        self.oauth_provider = oauth_provider
+
     async def dispatch(self, request: Request, call_next):
-        if request.url.path == "/healthz":
-            return JSONResponse({"status": "ok"})
-        provided = request.headers.get("X-MCP-Secret", "")
-        if not MCP_SHARED_SECRET or not hmac.compare_digest(provided, MCP_SHARED_SECRET):
-            logger.warning("Rejected request to %s: missing or invalid X-MCP-Secret",
-                           request.url.path)
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
-        return await call_next(request)
+        path = request.url.path
+        if path in OPEN_PATHS or path.startswith(OPEN_PREFIXES):
+            return await call_next(request)
+
+        provided_secret = request.headers.get("X-MCP-Secret", "")
+        if MCP_SHARED_SECRET and hmac.compare_digest(provided_secret, MCP_SHARED_SECRET):
+            return await call_next(request)
+
+        authorization = request.headers.get("Authorization", "")
+        if authorization.startswith("Bearer ") and \
+                self.oauth_provider.verify_access_token(authorization.removeprefix("Bearer ")):
+            return await call_next(request)
+
+        logger.warning("Rejected request to %s: no valid X-MCP-Secret or Bearer token", path)
+        return JSONResponse(
+            {"error": "unauthorized"},
+            status_code=401,
+            headers={"WWW-Authenticate": (
+                'Bearer resource_metadata='
+                f'"{self.oauth_provider.base_url}/.well-known/oauth-protected-resource"'
+            )},
+        )
+
+
+async def healthz(request: Request) -> JSONResponse:
+    return JSONResponse({"status": "ok"})
 
 
 @mcp.tool()
@@ -138,15 +170,31 @@ def best_places_near(address: str, category: PlaceCategory, radius: int = 1500, 
         return [{"error": str(e)}]
 
 
-def build_app():
+def build_app(port: int = 8000):
     if not MCP_SHARED_SECRET:
         raise RuntimeError("MCP_SHARED_SECRET is not set; refusing to start unauthenticated")
+
+    # Render injects RENDER_EXTERNAL_URL; PUBLIC_BASE_URL overrides for other hosts
+    base_url = (os.getenv("PUBLIC_BASE_URL")
+                or os.getenv("RENDER_EXTERNAL_URL")
+                or f"http://localhost:{port}")
+    extra_redirects = {u.strip() for u in os.getenv("OAUTH_EXTRA_REDIRECTS", "").split(",")
+                       if u.strip()}
+    oauth_provider = OAuthProvider(base_url, MCP_SHARED_SECRET, extra_redirects)
+
     app = mcp.streamable_http_app()
-    app.add_middleware(SharedSecretMiddleware)
+    from starlette.routing import Route
+    app.router.routes.append(Route("/healthz", healthz, methods=["GET"]))
+    app.router.routes.extend(oauth_provider.routes())
+    app.add_middleware(AuthMiddleware, oauth_provider=oauth_provider)
+    # CORS outermost so browser preflights don't hit auth
+    app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
+                       allow_headers=["*"], expose_headers=["Mcp-Session-Id"])
+    logger.info("OAuth issuer/base URL: %s", base_url)
     return app
 
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "8000"))
     logger.info("Starting google-maps MCP server on port %d (endpoint /mcp)", port)
-    uvicorn.run(build_app(), host="0.0.0.0", port=port)
+    uvicorn.run(build_app(port), host="0.0.0.0", port=port)
