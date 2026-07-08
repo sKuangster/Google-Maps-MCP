@@ -4,6 +4,8 @@ from client import (
     reverse_geocode,
     search_places,
     rank_places,
+    get_directions,
+    DirectionsRequest,
     PlaceCategory,
     PlaceSearchRequest,
 )
@@ -39,6 +41,17 @@ def find_nearby_places(request: PlaceSearchRequest) -> list:
         return rank_places(raw, request.min_reviews)
     except Exception as e:
         return [{"error": str(e)}]
+
+
+@mcp.tool()
+def get_directions_between(request: DirectionsRequest) -> dict:
+    """Get directions between two points (each an address, place name, or 'lat,lng')
+    by driving, walking, transit, or bicycling. Returns total distance, duration,
+    and a turn-by-turn step summary."""
+    try:
+        return get_directions(request.origin, request.destination, request.mode).model_dump()
+    except Exception as e:
+        return {"error": f"Could not get directions: {e}"}
 
 
 @mcp.tool()

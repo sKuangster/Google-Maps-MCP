@@ -11,6 +11,7 @@ tools over the Model Context Protocol.
 | `get_reverse_geocode` | Latitude/longitude -> human-readable address + place_id |
 | `find_nearby_places` | Category-based nearby place search (ranked by rating) |
 | `best_places_near` | Geocode an address and search nearby in one call |
+| `get_directions_between` | Directions between two points (driving/walking/transit/bicycling): distance, duration, step summary |
 
 Supported place categories: `food_and_drink`, `entertainment_and_recreation`,
 `shopping`, `sports`, `automotive`, `health_and_wellness`, `lodging`.
@@ -33,3 +34,5 @@ Enable these in your Google Cloud project:
 
 - Geocoding API
 - Places API (New)
+- Routes API (used for directions and distance matrix — the legacy
+  Directions/Distance Matrix APIs are not available to new Google Cloud projects)

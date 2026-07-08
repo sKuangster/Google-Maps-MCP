@@ -7,10 +7,28 @@ import requests
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
+from cost_control import cached_and_throttled
+
 load_dotenv(Path(__file__).resolve().parent / ".env")
 API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
 
 logger = logging.getLogger(__name__)
+
+
+class TravelMode(str, Enum):
+    DRIVING = "driving"
+    WALKING = "walking"
+    BICYCLING = "bicycling"
+    TRANSIT = "transit"
+
+
+# Routes API uses different mode names than the values we expose
+ROUTES_TRAVEL_MODES = {
+    TravelMode.DRIVING: "DRIVE",
+    TravelMode.WALKING: "WALK",
+    TravelMode.BICYCLING: "BICYCLE",
+    TravelMode.TRANSIT: "TRANSIT",
+}
 
 
 class PlaceCategory(str, Enum):
@@ -122,6 +140,26 @@ class ReverseGeocodeResult(BaseModel):
     place_id: str
 
 
+class DirectionsRequest(BaseModel):
+    origin: str = Field(description="Street address, place name, or 'lat,lng'")
+    destination: str = Field(description="Street address, place name, or 'lat,lng'")
+    mode: TravelMode = TravelMode.DRIVING
+
+
+class DirectionsStep(BaseModel):
+    instruction: str
+    distance: str | None = None
+    duration: str | None = None
+
+
+class DirectionsResult(BaseModel):
+    distance_meters: int
+    distance_text: str
+    duration_seconds: int
+    duration_text: str
+    steps: list[DirectionsStep]
+
+
 def geocode_address(address: str) -> GeocodeResult:
     resp = requests.get(
         "https://maps.googleapis.com/maps/api/geocode/json",
@@ -189,6 +227,75 @@ def search_places(lat: float, lng: float, category: PlaceCategory, radius: int =
     resp.raise_for_status()
 
     return resp.json().get("places", [])
+
+
+def _waypoint(location: str) -> dict:
+    """Build a Routes API waypoint from either a 'lat,lng' pair or a free-form address."""
+    parts = location.split(",")
+    if len(parts) == 2:
+        try:
+            lat, lng = float(parts[0]), float(parts[1])
+            return {"location": {"latLng": {"latitude": lat, "longitude": lng}}}
+        except ValueError:
+            pass
+    return {"address": location}
+
+
+def _duration_seconds(duration: str) -> int:
+    # Routes API durations are protobuf strings like "1234s"
+    return int(float(duration.rstrip("s") or 0))
+
+
+@cached_and_throttled(ttl_seconds=300, min_interval_seconds=0.5)
+def get_directions(origin: str, destination: str, mode: TravelMode = TravelMode.DRIVING) -> DirectionsResult:
+    url = "https://routes.googleapis.com/directions/v2:computeRoutes"
+    headers = {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": API_KEY,
+        "X-Goog-FieldMask": (
+            "routes.distanceMeters,routes.duration,routes.localizedValues,"
+            "routes.legs.steps.navigationInstruction,routes.legs.steps.localizedValues"
+        ),
+    }
+    body = {
+        "origin": _waypoint(origin),
+        "destination": _waypoint(destination),
+        "travelMode": ROUTES_TRAVEL_MODES[mode],
+    }
+    if mode == TravelMode.DRIVING:
+        body["routingPreference"] = "TRAFFIC_AWARE"
+
+    resp = requests.post(url, headers=headers, json=body, timeout=15)
+    if not resp.ok:
+        logger.error("Routes computeRoutes failed: status=%s body=%s", resp.status_code, resp.text)
+    resp.raise_for_status()
+
+    routes = resp.json().get("routes", [])
+    if not routes:
+        raise ValueError(f"No {mode.value} route found from '{origin}' to '{destination}'")
+
+    route = routes[0]
+    steps = []
+    for leg in route.get("legs", []):
+        for step in leg.get("steps", []):
+            instruction = step.get("navigationInstruction", {}).get("instructions")
+            if not instruction:
+                continue
+            localized = step.get("localizedValues", {})
+            steps.append(DirectionsStep(
+                instruction=instruction,
+                distance=localized.get("distance", {}).get("text"),
+                duration=localized.get("staticDuration", {}).get("text"),
+            ))
+
+    localized = route.get("localizedValues", {})
+    return DirectionsResult(
+        distance_meters=route.get("distanceMeters", 0),
+        distance_text=localized.get("distance", {}).get("text", ""),
+        duration_seconds=_duration_seconds(route.get("duration", "0s")),
+        duration_text=localized.get("duration", {}).get("text", ""),
+        steps=steps,
+    )
 
 
 def rank_places(results: list, min_reviews: int = 5) -> list:
