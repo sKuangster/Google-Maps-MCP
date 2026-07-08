@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: google-maps-mcp
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python server.py
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.4
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
+      - key: MCP_SHARED_SECRET
+        sync: false
