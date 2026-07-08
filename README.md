@@ -12,6 +12,9 @@ tools over the Model Context Protocol.
 | `find_nearby_places` | Category-based nearby place search (ranked by rating) |
 | `best_places_near` | Geocode an address and search nearby in one call |
 
+Supported place categories: `food_and_drink`, `entertainment_and_recreation`,
+`shopping`, `sports`, `automotive`, `health_and_wellness`, `lodging`.
+
 ## Setup
 
 ```bash

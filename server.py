@@ -32,7 +32,8 @@ def get_reverse_geocode(lat: float, lng: float) -> dict:
 @mcp.tool()
 def find_nearby_places(request: PlaceSearchRequest) -> list:
     """Find and rank the best-rated places near a location, filtered by category
-    (e.g. food_and_drink, entertainment_and_recreation)."""
+    (food_and_drink, entertainment_and_recreation, shopping, sports, automotive,
+    health_and_wellness, lodging)."""
     try:
         raw = search_places(request.lat, request.lng, request.category, request.radius)
         return rank_places(raw, request.min_reviews)

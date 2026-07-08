@@ -16,12 +16,11 @@ logger = logging.getLogger(__name__)
 class PlaceCategory(str, Enum):
     ENTERTAINMENT_AND_RECREATION = "entertainment_and_recreation"
     FOOD_AND_DRINK = "food_and_drink"
-    # Add more as you build out their type lists:
-    # AUTOMOTIVE = "automotive"
-    # BUSINESS = "business"
-    # CULTURE = "culture"
-    # SHOPPING = "shopping"
-    # SPORTS = "sports"
+    SHOPPING = "shopping"
+    SPORTS = "sports"
+    AUTOMOTIVE = "automotive"
+    HEALTH_AND_WELLNESS = "health_and_wellness"
+    LODGING = "lodging"
 
 
 RESTAURANT_TYPES = [
@@ -57,9 +56,50 @@ ACTIVITY_TYPES = [
     "community_center", "convention_center", "event_venue", "banquet_hall", "wedding_venue",
 ]
 
+SHOPPING_TYPES = [
+    "shopping_mall", "department_store", "market", "supermarket", "grocery_store",
+    "asian_grocery_store", "food_store", "convenience_store", "warehouse_store",
+    "discount_store", "wholesaler", "butcher_shop", "liquor_store",
+    "clothing_store", "shoe_store", "jewelry_store", "gift_shop",
+    "book_store", "cell_phone_store", "electronics_store", "hardware_store",
+    "home_goods_store", "home_improvement_store", "furniture_store",
+    "bicycle_store", "sporting_goods_store", "pet_store", "auto_parts_store", "store",
+]
+
+SPORTS_TYPES = [
+    "arena", "stadium", "sports_complex", "sports_club", "sports_activity_location",
+    "sports_coaching", "athletic_field", "fitness_center", "gym", "golf_course",
+    "ice_skating_rink", "ski_resort", "swimming_pool", "playground",
+    "fishing_charter", "fishing_pond",
+]
+
+AUTOMOTIVE_TYPES = [
+    "car_dealer", "car_rental", "car_repair", "car_wash",
+    "electric_vehicle_charging_station", "gas_station", "parking", "rest_stop",
+]
+
+HEALTH_AND_WELLNESS_TYPES = [
+    "hospital", "doctor", "dental_clinic", "dentist", "chiropractor",
+    "physiotherapist", "medical_lab", "pharmacy", "drugstore",
+    "spa", "massage", "sauna", "skin_care_clinic", "tanning_studio",
+    "wellness_center", "yoga_studio",
+]
+
+LODGING_TYPES = [
+    "hotel", "motel", "resort_hotel", "extended_stay_hotel", "bed_and_breakfast",
+    "inn", "japanese_inn", "budget_japanese_inn", "guest_house", "private_guest_room",
+    "hostel", "cottage", "farmstay", "campground", "camping_cabin", "rv_park",
+    "mobile_home_park", "lodging",
+]
+
 CATEGORY_TYPES = {
     PlaceCategory.FOOD_AND_DRINK: RESTAURANT_TYPES,
     PlaceCategory.ENTERTAINMENT_AND_RECREATION: ACTIVITY_TYPES,
+    PlaceCategory.SHOPPING: SHOPPING_TYPES,
+    PlaceCategory.SPORTS: SPORTS_TYPES,
+    PlaceCategory.AUTOMOTIVE: AUTOMOTIVE_TYPES,
+    PlaceCategory.HEALTH_AND_WELLNESS: HEALTH_AND_WELLNESS_TYPES,
+    PlaceCategory.LODGING: LODGING_TYPES,
 }
 
 
