@@ -16,6 +16,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from oauth import OAuthProvider
+from enrichment import EnrichLocationRequest, enrich_location_data
 from client import (
     geocode_address,
     reverse_geocode,
@@ -209,6 +210,22 @@ def best_places_near(address: str, category: PlaceCategory, radius: int = 1500, 
         return rank_places(raw, min_reviews)
     except Exception as e:
         return [{"error": str(e)}]
+
+
+@mcp.tool()
+def enrich_location(request: EnrichLocationRequest) -> dict:
+    """Deep-dive on one location, combining Google place data, the location's own
+    website, and a general web search. Opening hours are the top-priority output:
+    pass `visit_time` (ISO datetime, local to the place) to get a deterministic
+    open/closed/unknown verdict for a planned visit - use this to validate every
+    timed stop in an itinerary. Use `focus` to steer the web search toward
+    whatever the user cares about (price range, menu, vibe, reviews, ...); the
+    website extract and search snippets come back raw for you to mine. Identify
+    the place by place_id, or by name (+ address for disambiguation)."""
+    try:
+        return enrich_location_data(request)
+    except Exception as e:
+        return {"error": f"Could not enrich location: {e}"}
 
 
 MAP_VIEW_URI = "ui://google-maps/itinerary-map.html"

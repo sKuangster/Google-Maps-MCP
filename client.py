@@ -274,6 +274,10 @@ class PlaceDetails(BaseModel):
     rating: float | None = None
     user_rating_count: int | None = None
     opening_hours: list[str] = []
+    # Raw Places API shapes, for deterministic open/closed checks:
+    opening_periods: list = []              # regularOpeningHours.periods
+    current_opening_hours: dict | None = None  # date-stamped, holiday-adjusted (~7 days)
+    utc_offset_minutes: int | None = None
     reviews: list[PlaceReview] = []
 
 
@@ -488,6 +492,7 @@ def fetch_place_details(place_id: str) -> PlaceDetails:
         "X-Goog-FieldMask": (
             "id,displayName,formattedAddress,internationalPhoneNumber,websiteUri,"
             "priceLevel,rating,userRatingCount,regularOpeningHours.weekdayDescriptions,"
+            "regularOpeningHours.periods,currentOpeningHours,utcOffsetMinutes,"
             "reviews.rating,reviews.text.text,reviews.authorAttribution.displayName,"
             "reviews.relativePublishTimeDescription"
         ),
@@ -524,8 +529,34 @@ def fetch_place_details(place_id: str) -> PlaceDetails:
         rating=data.get("rating"),
         user_rating_count=data.get("userRatingCount"),
         opening_hours=data.get("regularOpeningHours", {}).get("weekdayDescriptions", []),
+        opening_periods=data.get("regularOpeningHours", {}).get("periods", []),
+        current_opening_hours=data.get("currentOpeningHours"),
+        utc_offset_minutes=data.get("utcOffsetMinutes"),
         reviews=reviews,
     )
+
+
+def resolve_place_id(query: str) -> str:
+    """Resolve a free-text 'name address' query to a place_id via Text Search
+    with an ID-only field mask (free SKU)."""
+    resp = requests.post(
+        "https://places.googleapis.com/v1/places:searchText",
+        headers={
+            "Content-Type": "application/json",
+            "X-Goog-Api-Key": API_KEY,
+            "X-Goog-FieldMask": "places.id",
+        },
+        json={"textQuery": query},
+        timeout=10,
+    )
+    if not resp.ok:
+        logger.error("Places searchText failed: status=%s body=%s", resp.status_code, resp.text)
+    resp.raise_for_status()
+
+    places = resp.json().get("places", [])
+    if not places:
+        raise ValueError(f"No place found matching '{query}'")
+    return places[0]["id"]
 
 
 def rank_places(results: list, min_reviews: int = 5) -> list:

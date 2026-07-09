@@ -4,3 +4,5 @@ requests>=2.31
 python-dotenv>=1.0
 starlette>=0.37
 uvicorn>=0.30
+beautifulsoup4>=4.12
+ddgs>=9.0
