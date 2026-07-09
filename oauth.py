@@ -107,17 +107,21 @@ class OAuthProvider:
     def verify_access_token(self, token: str) -> bool:
         return self._verify(token, "access") is not None
 
-    def _issue_tokens(self) -> dict:
+    def _issue_tokens(self, scope: str | None) -> dict:
         now = int(time.time())
-        return {
+        tokens = {
             "access_token": self._sign({"t": "access", "exp": now + ACCESS_TOKEN_TTL,
                                         "n": secrets.token_urlsafe(8)}),
             "token_type": "Bearer",
             "expires_in": ACCESS_TOKEN_TTL,
             "refresh_token": self._sign({"t": "refresh", "exp": now + REFRESH_TOKEN_TTL,
-                                         "n": secrets.token_urlsafe(8)}),
-            "scope": "mcp",
+                                         "n": secrets.token_urlsafe(8), "s": scope}),
         }
+        # Echo the client's requested scope; a granted scope that differs from
+        # the requested one can make strict clients abort after token exchange.
+        if scope:
+            tokens["scope"] = scope
+        return tokens
 
     # --- validation helpers -----------------------------------------------
 
@@ -209,6 +213,7 @@ class OAuthProvider:
                     "exp": int(time.time()) + AUTH_CODE_TTL,
                     "r": redirect_uri,
                     "c": params["code_challenge"],
+                    "s": params.get("scope"),
                     "n": secrets.token_urlsafe(8),
                 })
                 query = {"code": code}
@@ -254,13 +259,14 @@ class OAuthProvider:
             now = time.time()
             self._used_codes = {c: exp for c, exp in self._used_codes.items() if exp > now}
             self._used_codes[code] = payload["exp"]
-            logger.info("Exchanged authorization code for tokens")
-            return JSONResponse(self._issue_tokens(), headers=headers)
+            logger.info("Exchanged authorization code for tokens (scope=%s)", payload.get("s"))
+            return JSONResponse(self._issue_tokens(payload.get("s")), headers=headers)
 
         if grant_type == "refresh_token":
-            if self._verify(str(form.get("refresh_token", "")), "refresh") is None:
+            refresh_payload = self._verify(str(form.get("refresh_token", "")), "refresh")
+            if refresh_payload is None:
                 return JSONResponse({"error": "invalid_grant"}, status_code=400, headers=headers)
-            return JSONResponse(self._issue_tokens(), headers=headers)
+            return JSONResponse(self._issue_tokens(refresh_payload.get("s")), headers=headers)
 
         return JSONResponse({"error": "unsupported_grant_type"}, status_code=400, headers=headers)
 
