@@ -104,6 +104,22 @@ def test_stop_requires_address_or_full_coords():
     ItineraryStop(name="ok-coords", lat=40.0, lng=-73.0)
 
 
+def test_map_tool_emits_structured_content():
+    # The MCP Apps view receives the tool result as structuredContent; that only
+    # exists when the tool's return annotation yields an output schema.
+    import asyncio
+
+    import server
+
+    result = asyncio.run(server.mcp.call_tool("create_embedded_map", {"request": {
+        "stops": [{"name": "A", "address": "a st"}, {"name": "B", "address": "b st"}],
+        "mode": "walking",
+    }}))
+    assert isinstance(result, tuple), "expected (content, structured_output) tuple"
+    structured = result[1]
+    assert structured and "embed_url" in structured and "maps_link" in structured
+
+
 def test_request_enforces_stop_count():
     one = [ItineraryStop(name="A", address="a")]
     with pytest.raises(ValidationError):

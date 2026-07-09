@@ -4,6 +4,7 @@ import os
 import threading
 import time
 from pathlib import Path
+from typing import Any
 
 import requests
 import uvicorn
@@ -213,7 +214,7 @@ def best_places_near(address: str, category: PlaceCategory, radius: int = 1500, 
 
 
 @mcp.tool()
-def enrich_location(request: EnrichLocationRequest) -> dict:
+def enrich_location(request: EnrichLocationRequest) -> dict[str, Any]:
     """Deep-dive on one location, combining Google place data, the location's own
     website, and a general web search. Opening hours are the top-priority output:
     pass `visit_time` (ISO datetime, local to the place) to get a deterministic
@@ -249,7 +250,9 @@ def itinerary_map_view() -> str:
     "ui": {"resourceUri": MAP_VIEW_URI},
     "ui/resourceUri": MAP_VIEW_URI,  # legacy hosts
 })
-def create_embedded_map(request: EmbeddedMapRequest) -> dict:
+# dict[str, Any] (not bare dict) so FastMCP emits structuredContent, which the
+# MCP Apps view consumes
+def create_embedded_map(request: EmbeddedMapRequest) -> dict[str, Any]:
     """Render a full multi-stop itinerary route (2-22 stops, in visit order) as an
     embedded interactive Google Map, plus an open-in-Google-Maps fallback link.
     Works standalone with any list of stops: each needs an address or lat/lng
