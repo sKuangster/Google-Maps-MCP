@@ -16,12 +16,28 @@ Context Protocol, served over authenticated streamable HTTP.
 | `get_distance_matrix` | Travel time/distance between multiple origins and destinations at once |
 | `get_place_details` | place_id -> phone, hours, website, price level, rating, review snippets |
 | `get_time_zone` | Latitude/longitude -> time zone ID/name, UTC offset, current local time |
+| `create_embedded_map` | Ordered stops (2-22) + travel mode -> embedded interactive multi-stop route map (MCP Apps) with an open-in-Google-Maps fallback link |
+| `enrich_location` | Place -> Google hours/details + parsed website extract + web search, with an open/closed verdict for a planned `visit_time` |
 
 Supported place categories: `food_and_drink`, `entertainment_and_recreation`,
 `shopping`, `sports`, `automotive`, `health_and_wellness`, `lodging`.
 
 Directions and distance-matrix inputs accept street addresses, place names, or
 `"lat,lng"` strings.
+
+### Itinerary planning
+
+`find_nearby_places` results include each place's coordinates, and its
+docstring teaches the calling model the walking-center pattern: recenter each
+follow-up search on the previously chosen stop instead of searching a whole
+area from one fixed center, so multi-stop plans cluster geographically.
+`enrich_location` validates that each stop is open at its planned visit time,
+and `create_embedded_map` renders the finished itinerary. The embedded map is
+an [MCP Apps](https://blog.modelcontextprotocol.io/posts/2026-01-26-mcp-apps/)
+view (`map_app.html`) served from `ui://google-maps/itinerary-map.html`;
+hosts without MCP Apps support still get the fallback maps link. Transit
+itineraries render per-leg maps because the Maps Embed API does not support
+waypoints in transit mode.
 
 ## Setup
 
@@ -70,6 +86,9 @@ Enable these in your Google Cloud project:
 - Routes API (used for directions and distance matrix — the legacy
   Directions/Distance Matrix APIs are not available to new Google Cloud projects)
 - Time Zone API
+- Maps Embed API (embedded itinerary maps — free of charge, unlimited). Embed
+  URLs expose their API key client-side; optionally set `MAPS_EMBED_API_KEY`
+  to a separate HTTP-referrer-restricted key.
 
 ## Cost control
 
@@ -81,6 +100,14 @@ minimum-interval throttle (see `cost_control.py`):
 | Directions (`computeRoutes`) | 5 min | 1 call / 0.5 s |
 | Distance Matrix (`computeRouteMatrix`) | 5 min | 1 call / 1 s |
 | Place Details | 1 hour | 1 call / 0.5 s |
+| Website fetch (`enrich_location`) | 1 hour | 1 call / 1 s |
+| DuckDuckGo search (`enrich_location`) | 1 hour | 1 call / 1 s |
+
+`enrich_location`'s web search uses keyless DuckDuckGo (`ddgs`); from
+datacenter IPs it can occasionally rate-limit, in which case that leg of the
+response degrades to an error field while Google data and the website extract
+still come back. Name-to-place_id resolution uses Text Search with an ID-only
+field mask, which is a free SKU.
 
 Repeated identical calls are served from cache and never hit Google. Cheap
 endpoints (Geocoding, Time Zone) call the API directly. Note that every
@@ -147,6 +174,11 @@ claude mcp add --transport http google-maps \
 |------|------|
 | `client.py` | Google Maps API wrappers, Pydantic models, enums — errors propagate naturally |
 | `server.py` | MCP tool definitions (try/except at the boundary), auth middleware, HTTP transport |
+| `enrichment.py` | Location enrichment: website extract, web search, deterministic hours verdict |
+| `map_app.html` | MCP Apps view for `create_embedded_map` (rendered by the host in a sandboxed iframe) |
 | `oauth.py` | Stateless OAuth 2.1 authorization server (metadata, registration, PKCE flow) |
 | `cost_control.py` | TTL cache + throttle decorator for expensive endpoints |
 | `render.yaml` | Render free-tier deployment blueprint |
+| `tests/` | pytest suite for the pure logic (embed URLs, hours verdicts, snippet extraction) |
+
+Run tests with `pip install -r requirements-dev.txt` then `python -m pytest`.
