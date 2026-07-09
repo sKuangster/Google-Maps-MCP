@@ -137,7 +137,14 @@ def get_reverse_geocode(lat: float, lng: float) -> dict:
 def find_nearby_places(request: PlaceSearchRequest) -> list:
     """Find and rank the best-rated places near a location, filtered by category
     (food_and_drink, entertainment_and_recreation, shopping, sports, automotive,
-    health_and_wellness, lodging)."""
+    health_and_wellness, lodging). Each result includes its coordinates in
+    `location`.
+
+    When building a multi-stop itinerary, do not search the whole area from one
+    fixed center: geocode the general area for the FIRST search only, then pass
+    the chosen stop's `location` as the lat/lng center of the next search
+    (radius 800-1500m for walking) so consecutive stops cluster geographically
+    instead of jumping around."""
     try:
         raw = search_places(request.lat, request.lng, request.category, request.radius)
         return rank_places(raw, request.min_reviews)
@@ -190,7 +197,10 @@ def get_time_zone(lat: float, lng: float) -> dict:
 @mcp.tool()
 def best_places_near(address: str, category: PlaceCategory, radius: int = 1500, min_reviews: int = 5) -> list:
     """Find and rank the best-rated places near a given address, filtered by category.
-    Combines geocoding and place search in one call."""
+    Combines geocoding and place search in one call. Best for the FIRST search of a
+    multi-stop itinerary; for follow-up stops, call find_nearby_places centered on
+    the previously chosen stop's `location` coordinates so the itinerary clusters
+    geographically."""
     try:
         geo = geocode_address(address)
         raw = search_places(geo.lat, geo.lng, category, radius)

@@ -255,7 +255,7 @@ def search_places(lat: float, lng: float, category: PlaceCategory, radius: int =
     headers = {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": API_KEY,
-        "X-Goog-FieldMask": "places.displayName,places.rating,places.userRatingCount,places.priceLevel,places.formattedAddress,places.id"
+        "X-Goog-FieldMask": "places.displayName,places.rating,places.userRatingCount,places.priceLevel,places.formattedAddress,places.id,places.location"
     }
     body = {
         "includedTypes": included_types[:50],
