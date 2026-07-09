@@ -4,15 +4,19 @@ import time
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
+from urllib.parse import urlencode
 
 import requests
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from cost_control import cached_and_throttled
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
 API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
+# Embed URLs expose their key client-side, so a separate HTTP-referrer-restricted
+# key can be supplied; the Embed API itself is free of charge.
+EMBED_API_KEY = os.getenv("MAPS_EMBED_API_KEY") or API_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -178,6 +182,72 @@ class DistanceMatrixEntry(BaseModel):
     distance_meters: int | None = None
     duration_seconds: int | None = None
     condition: str
+
+
+class ItineraryStop(BaseModel):
+    name: str
+    address: str | None = None
+    lat: float | None = None
+    lng: float | None = None
+    notes: str | None = Field(default=None, description="e.g. 'dinner, 7pm reservation'")
+
+    @model_validator(mode="after")
+    def require_position(self):
+        if self.address is None and (self.lat is None or self.lng is None):
+            raise ValueError(f"Stop '{self.name}' needs an address or both lat and lng")
+        return self
+
+    def routing_param(self) -> str:
+        """Value sent to the Embed API: coordinates when known, else the address.
+        The name alone is never sent - too ambiguous to route on."""
+        if self.lat is not None and self.lng is not None:
+            return f"{self.lat},{self.lng}"
+        return self.address
+
+
+class EmbeddedMapRequest(BaseModel):
+    # Embed API limit: 20 waypoints plus origin and destination
+    stops: list[ItineraryStop] = Field(min_length=2, max_length=22,
+                                       description="Stops in visit order")
+    mode: TravelMode = TravelMode.WALKING
+
+
+EMBED_DIRECTIONS_BASE = "https://www.google.com/maps/embed/v1/directions"
+
+
+def _embed_url(origin: str, destination: str, waypoints: list[str], mode: TravelMode) -> str:
+    params = {"key": EMBED_API_KEY, "origin": origin, "destination": destination,
+              "mode": mode.value}
+    if waypoints:
+        params["waypoints"] = "|".join(waypoints)
+    return f"{EMBED_DIRECTIONS_BASE}?{urlencode(params)}"
+
+
+def build_itinerary_map(stops: list[ItineraryStop], mode: TravelMode) -> dict:
+    """Build Embed API URL(s) and a universal maps link for a multi-stop route.
+
+    Pure string work - the Google request only happens when the iframe loads.
+    Transit mode gets one embed per leg because the Embed API rejects waypoints
+    for transit.
+    """
+    points = [stop.routing_param() for stop in stops]
+
+    link_params = {"api": "1", "origin": points[0], "destination": points[-1],
+                   "travelmode": mode.value}
+    if len(points) > 2:
+        link_params["waypoints"] = "|".join(points[1:-1])
+
+    result = {
+        "mode": mode.value,
+        "stops": [stop.model_dump(exclude_none=True) for stop in stops],
+        "maps_link": f"https://www.google.com/maps/dir/?{urlencode(link_params)}",
+    }
+    if mode == TravelMode.TRANSIT and len(points) > 2:
+        result["leg_embed_urls"] = [_embed_url(points[i], points[i + 1], [], mode)
+                                    for i in range(len(points) - 1)]
+    else:
+        result["embed_url"] = _embed_url(points[0], points[-1], points[1:-1], mode)
+    return result
 
 
 class PlaceReview(BaseModel):

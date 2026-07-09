@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="color-scheme" content="light dark">
+  <style>
+    :root {
+      --fg: #1a1a1a;
+      --muted: #666;
+      --border: #ddd;
+      --accent: #1a73e8;
+      --chip-bg: #f1f3f4;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --fg: #e8eaed;
+        --muted: #9aa0a6;
+        --border: #3c4043;
+        --accent: #8ab4f8;
+        --chip-bg: #303134;
+      }
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: transparent;
+      color: var(--fg);
+      font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    #root { padding: 4px 2px 10px; }
+    .map-frame {
+      width: 100%;
+      height: 440px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+    }
+    .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
+    .tabs button {
+      border: 1px solid var(--border);
+      background: var(--chip-bg);
+      color: var(--fg);
+      border-radius: 16px;
+      padding: 4px 12px;
+      font: inherit;
+      cursor: pointer;
+    }
+    .tabs button.active { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+    ol.stops { margin: 10px 0 6px; padding-left: 22px; }
+    ol.stops li { margin: 3px 0; }
+    .notes { color: var(--muted); }
+    .footer { margin-top: 6px; }
+    .footer a { color: var(--accent); text-decoration: none; }
+    .error { color: #d93025; padding: 8px 0; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module">
+    import { App } from "https://unpkg.com/@modelcontextprotocol/ext-apps@0.4.0/app-with-deps";
+
+    const root = document.getElementById("root");
+
+    function el(tag, attrs = {}, children = []) {
+      const node = document.createElement(tag);
+      for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+      for (const child of children) {
+        node.append(typeof child === "string" ? document.createTextNode(child) : child);
+      }
+      return node;
+    }
+
+    function mapFrame(src) {
+      return el("iframe", {
+        class: "map-frame",
+        src,
+        loading: "lazy",
+        allowfullscreen: "",
+        referrerpolicy: "no-referrer-when-downgrade",
+      });
+    }
+
+    function render(data) {
+      root.replaceChildren();
+
+      if (data.error) {
+        root.append(el("div", { class: "error" }, [String(data.error)]));
+        return;
+      }
+
+      if (data.embed_url) {
+        root.append(mapFrame(data.embed_url));
+      } else if (Array.isArray(data.leg_embed_urls) && data.leg_embed_urls.length) {
+        // Transit itineraries come as one embed per leg (Embed API limitation)
+        const stops = data.stops ?? [];
+        const frame = mapFrame(data.leg_embed_urls[0]);
+        const tabs = el("div", { class: "tabs" });
+        data.leg_embed_urls.forEach((url, i) => {
+          const from = stops[i]?.name ?? `Stop ${i + 1}`;
+          const to = stops[i + 1]?.name ?? `Stop ${i + 2}`;
+          const button = el("button", i === 0 ? { class: "active" } : {}, [`${from} → ${to}`]);
+          button.addEventListener("click", () => {
+            frame.src = url;
+            tabs.querySelectorAll("button").forEach(b => b.classList.remove("active"));
+            button.classList.add("active");
+          });
+          tabs.append(button);
+        });
+        root.append(tabs, frame);
+      }
+
+      const stops = data.stops ?? [];
+      if (stops.length) {
+        const items = stops.map(stop =>
+          el("li", {}, stop.notes
+            ? [`${stop.name} `, el("span", { class: "notes" }, [`— ${stop.notes}`])]
+            : [stop.name]));
+        root.append(el("ol", { class: "stops" }, items));
+      }
+
+      if (data.maps_link) {
+        root.append(el("div", { class: "footer" }, [
+          el("a", { href: data.maps_link, target: "_blank", rel: "noopener" },
+             ["Open in Google Maps ↗"]),
+        ]));
+      }
+    }
+
+    const app = new App({ name: "Itinerary Map", version: "1.0.0" });
+
+    app.ontoolresult = (result) => {
+      let data = result?.structuredContent ?? {};
+      if (data.result && !data.embed_url && !data.leg_embed_urls) data = data.result;
+      if (!data.embed_url && !data.leg_embed_urls && !data.error) {
+        const text = result?.content?.find(c => c.type === "text")?.text;
+        if (text) { try { data = JSON.parse(text); } catch { /* leave as-is */ } }
+      }
+      render(data);
+    };
+
+    app.onhostcontextchanged = (ctx) => {
+      if (ctx?.safeAreaInsets) {
+        const { top, right, bottom, left } = ctx.safeAreaInsets;
+        document.body.style.padding = `${top}px ${right}px ${bottom}px ${left}px`;
+      }
+    };
+
+    await app.connect();
+    const ctx = app.getHostContext();
+    if (ctx?.safeAreaInsets) app.onhostcontextchanged(ctx);
+  </script>
+</body>
+</html>

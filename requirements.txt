@@ -1,4 +1,4 @@
-mcp>=1.10
+mcp>=1.28  # meta= on tool/resource decorators (MCP Apps)
 pydantic>=2.7
 requests>=2.31
 python-dotenv>=1.0

@@ -25,8 +25,10 @@ from client import (
     compute_distance_matrix,
     fetch_place_details,
     lookup_time_zone,
+    build_itinerary_map,
     DirectionsRequest,
     DistanceMatrixRequest,
+    EmbeddedMapRequest,
     PlaceCategory,
     PlaceSearchRequest,
 )
@@ -207,6 +209,40 @@ def best_places_near(address: str, category: PlaceCategory, radius: int = 1500, 
         return rank_places(raw, min_reviews)
     except Exception as e:
         return [{"error": str(e)}]
+
+
+MAP_VIEW_URI = "ui://google-maps/itinerary-map.html"
+
+
+# MCP Apps view: claude.ai renders this HTML in a sandboxed iframe and passes it
+# the tool result. Every external domain the view touches must be in the CSP meta.
+@mcp.resource(
+    MAP_VIEW_URI,
+    mime_type="text/html;profile=mcp-app",
+    meta={"ui": {"csp": {
+        "resourceDomains": ["https://unpkg.com"],
+        "frameDomains": ["https://www.google.com"],
+    }}},
+)
+def itinerary_map_view() -> str:
+    return (Path(__file__).resolve().parent / "map_app.html").read_text(encoding="utf-8")
+
+
+@mcp.tool(meta={
+    "ui": {"resourceUri": MAP_VIEW_URI},
+    "ui/resourceUri": MAP_VIEW_URI,  # legacy hosts
+})
+def create_embedded_map(request: EmbeddedMapRequest) -> dict:
+    """Render a full multi-stop itinerary route (2-22 stops, in visit order) as an
+    embedded interactive Google Map, plus an open-in-Google-Maps fallback link.
+    Works standalone with any list of stops: each needs an address or lat/lng
+    (e.g. from find_nearby_places `location` results); `name` labels the stop and
+    optional `notes` annotate it in the displayed stop list. Travel modes:
+    walking, driving, bicycling, transit (transit renders per-leg maps)."""
+    try:
+        return build_itinerary_map(request.stops, request.mode)
+    except Exception as e:
+        return {"error": f"Could not build itinerary map: {e}"}
 
 
 def build_app(port: int = 8000):
